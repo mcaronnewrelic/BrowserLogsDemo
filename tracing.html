@@ -230,6 +230,17 @@
   .entry .url { margin-top: 6px; font: 500 13px/1.45 var(--mono); color: var(--white); word-break: break-all; }
   .entry .tp { margin-top: 6px; font: 500 11.5px/1.5 var(--mono); word-break: break-all; }
   .entry .line2 { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .entry .logline { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(253,252,240,.05); font: 500 11.5px/1.5 var(--mono); color: var(--sand); word-break: break-all; }
+  .entry .logline b { color: var(--white); font-weight: 600; }
+  .entry .logline .lvl { display: inline-block; padding: 0 6px; border-radius: 6px; margin-right: 6px; color: var(--black); font-weight: 600; }
+  .lvl.info { background: var(--blue-1); } .lvl.warn { background: var(--ember-1); } .lvl.error { background: var(--magenta-1); }
+  .snippet { background: var(--black); color: var(--sand); border-radius: 14px; padding: 14px 16px; font: 500 12.5px/1.6 var(--mono); white-space: pre-wrap; word-break: break-word; margin: 0; }
+  .snippet .k { color: var(--green); } .snippet .c { color: var(--gray); } .snippet .s { color: var(--blue-1); }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .compare > div { background: var(--sys-white); border-radius: 16px; padding: 14px 16px; font-size: 14px; }
+  .compare h4 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+  .compare ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
+  .compare li { margin: 3px 0; }
   .entry .hint { margin-top: 6px; font-size: 12.5px; color: var(--sand); opacity: .85; line-height: 1.4; }
   .status { padding: 2px 8px; border-radius: var(--pill); font: 600 10.5px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .05em; }
   .status.good { background: rgba(28,231,131,.16); color: var(--green); }
@@ -287,6 +298,7 @@
     .agent-badge { padding: 9px; }
     .agent-badge #agentText { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     .hrow { grid-template-columns: 1fr; gap: 2px; }
+    .compare { grid-template-columns: 1fr; }
     .wf-row { grid-template-columns: 1fr; gap: 4px; }
   }
   @media (max-width: 560px) {
@@ -349,7 +361,7 @@
       <div>
         <div class="eyebrow">New Relic distributed tracing</div>
         <h1 class="display" style="margin-top:18px">Follow<br>the click.</h1>
-        <p class="lede">Press a button and follow one request from this page, across the network, and into the services behind it. Every hop lands in the same trace.</p>
+        <p class="lede">Press a button and follow one request from this page, across the network, and into the services behind it. Every hop lands in the same trace, and so do the logs written along the way.</p>
         <div class="ctas">
           <a class="btn" href="#step-1">Start tracing <span class="arrow" aria-hidden="true">→</span></a>
           <a class="btn secondary" href="#step-3">Jump to the query</a>
@@ -408,7 +420,7 @@
       <div class="step-head">
         <div class="eyebrow"><span class="step-num">Step 02</span> / Generate traces</div>
         <h2 class="display" style="margin-top:14px">Send some requests</h2>
-        <p class="muted">Each click is a browser interaction, and each request made during it gets its own trace. The inspector on the right shows the headers the agent added and whether the backend joined the trace.</p>
+        <p class="muted">Each click is a browser interaction, and each request made during it gets its own trace. The inspector on the right shows the headers the agent added, whether the backend joined the trace, and the log this page wrote for it.</p>
       </div>
 
       <div class="playground">
@@ -419,6 +431,23 @@
             <h3 id="hdrTitle">Headers on your last request</h3>
             <p>These are the real values the browser agent attached. <code>traceparent</code> is the W3C standard header. <code>tracestate</code> and <code>newrelic</code> carry New Relic's account and app details so the trace is stitched together correctly.</p>
             <div class="headers-panel" id="headersPanel"><span class="empty">Send a request below to see its trace headers.</span></div>
+          </article>
+
+          <article class="card wide" aria-labelledby="logsTitle">
+            <div class="tag">Logs in the trace</div>
+            <h3 id="logsTitle">Put your logs on the same trace</h3>
+            <p>The agent puts trace headers on your requests automatically, but it does <b>not</b> add a trace ID to browser logs from <code>newrelic.log()</code> or <code>wrapLogger()</code>. Add it yourself as <code>trace.id</code>, the attribute New Relic uses to show logs on a trace. A key like <code>traceId</code> would be saved but not linked.</p>
+            <div class="compare">
+              <div><h4>Added to every browser log</h4><ul><li><code>session</code>, the browser session ID</li><li><code>ptid</code>, the page view's trace ID</li><li><code>pageUrl</code> and your custom attributes, like <code>demoCode</code></li></ul></div>
+              <div><h4>You add per request</h4><ul><li><code>trace.id</code> from the <code>traceparent</code> your request carried (this page captures it)</li><li>or from the response: the demo backend returns <code>x-trace-id</code>, exposed through CORS</li></ul></div>
+            </div>
+<pre class="snippet"><span class="c">// After a request: log with the same trace ID the request carried</span>
+<span class="k">const</span> traceId = traceparent.split(<span class="s">'-'</span>)[<span class="s">1</span>]  <span class="c">// version-TRACEID-parentId-flags</span>
+newrelic.<span class="k">log</span>(<span class="s">'GET /api/products 200'</span>, {
+  level: <span class="s">'info'</span>,
+  customAttributes: { <span class="s">'trace.id'</span>: traceId, requestUrl: <span class="s">'/api/products'</span> }
+})</pre>
+            <p>On the server, the Node.js agent's <code>newrelic.recordLogEvent()</code> adds <code>trace.id</code> and <code>span.id</code> for you, so checkout writes three backend logs (inventory, payment, checkout) onto your trace. Successful requests log at INFO, so set your app's manual log verbosity to INFO or lower in Application settings.</p>
           </article>
 
           <article class="card" aria-labelledby="singleTitle">
@@ -492,6 +521,15 @@
             <a class="btn ghost-dark small" href="https://one.newrelic.com" target="_blank" rel="noopener">Open New Relic <span class="arrow" aria-hidden="true">→</span></a>
           </div>
         </div>
+        <div class="find-card full">
+          <h3>Your logs, browser and backend together</h3>
+          <ol>
+            <li>Run this to see every log written on your traces. Browser logs have a <code>session</code>; backend logs have a <code>span.id</code>.</li>
+            <li>Or open any of your traces in <b>Distributed tracing</b> and look at its <b>Logs</b> tab.</li>
+          </ol>
+          <pre id="nrqlLogs" class="placeholder">Send a request in Step 02 to fill in your trace IDs.</pre>
+          <div class="actions"><button class="btn green small js-copy" data-copy-target="nrqlLogs" type="button">Copy NRQL</button></div>
+        </div>
         <div class="find-card">
           <h3>Your requests, from the browser</h3>
           <p>Every request is also an <code>AjaxRequest</code> event tagged with your code.</p>
@@ -507,6 +545,7 @@
       </div>
       <div class="tips">
         <div class="tip"><b>No backend spans?</b>In browser-only mode that is expected. Static files have no APM agent. Connect the backend in <code>backend/README.md</code> to see the full path.</div>
+        <div class="tip"><b>No INFO logs?</b>Successful requests log at INFO. If your app keeps only WARN and above, raise the manual log verbosity under Browser &gt; Application settings.</div>
         <div class="tip"><b>Backend not joining?</b>Add its origin under CORS in Application settings, then re-copy the snippet into the pages. The inspector tells you which step is missing.</div>
         <div class="tip"><b>Learn more</b><a href="https://docs.newrelic.com/docs/browser/new-relic-browser/browser-pro-features/browser-data-distributed-tracing/" target="_blank" rel="noopener">Browser data in distributed tracing</a> · <a href="https://www.w3.org/TR/trace-context/" target="_blank" rel="noopener">W3C Trace Context</a></div>
       </div>
@@ -587,18 +626,57 @@
     return o.backend.apm.traceId === o.sent.traceId ? 'joined' : 'mismatch';
   }
 
-  function buildSpanNrql(traceIds) {
+  // Newest first, unique, valid W3C trace IDs only, at most 20.
+  function recentTraceIds(traceIds) {
     var seen = {}, ids = [];
     for (var i = traceIds.length - 1; i >= 0 && ids.length < 20; i--) {
       var id = String(traceIds[i] || '').toLowerCase();
       if (/^[0-9a-f]{32}$/.test(id) && !seen[id]) { seen[id] = 1; ids.push(id); }
     }
+    return ids;
+  }
+  function inList(ids) { return ids.map(function (x) { return "'" + x + "'"; }).join(', '); }
+  function buildSpanNrql(traceIds) {
+    var ids = recentTraceIds(traceIds);
     if (!ids.length) return null;
     return "SELECT trace.id, name, browserApp.name, appName, duration.ms\n" +
            "FROM Span\n" +
-           "WHERE trace.id IN (" + ids.map(function (x) { return "'" + x + "'"; }).join(', ') + ")\n" +
+           "WHERE trace.id IN (" + inList(ids) + ")\n" +
            "SINCE 1 hour ago LIMIT 200";
   }
+  function buildLogsNrql(traceIds) {
+    var ids = recentTraceIds(traceIds);
+    if (!ids.length) return null;
+    return "SELECT timestamp, level, message, trace.id, span.id, session, entity.name\n" +
+           "FROM Log\n" +
+           "WHERE trace.id IN (" + inList(ids) + ")\n" +
+           "SINCE 1 hour ago LIMIT 200";
+  }
+
+  function isTraceId(v) { return /^[0-9a-f]{32}$/.test(String(v || '').toLowerCase()) && !/^0+$/.test(String(v)); }
+  // Which trace ID should a browser log carry? The one the request was sent with (always
+  // present when the agent traced it). The response (x-trace-id header or JSON body) is
+  // a second source, reported so you can see whether the backend agreed.
+  function traceIdForLog(o) {
+    var fromHeader = isTraceId(o.responseHeader) ? String(o.responseHeader).toLowerCase() : null;
+    var fromBody = o.backend && o.backend.apm && isTraceId(o.backend.apm.traceId) ? String(o.backend.apm.traceId).toLowerCase() : null;
+    var resp = fromHeader || fromBody;
+    if (o.sent) return { traceId: o.sent.traceId, source: 'request-header', responseTraceId: resp, match: resp ? resp === o.sent.traceId : null };
+    if (fromHeader) return { traceId: fromHeader, source: 'response-header', responseTraceId: fromHeader, match: null };
+    if (fromBody) return { traceId: fromBody, source: 'response-body', responseTraceId: fromBody, match: null };
+    return { traceId: null, source: 'none', responseTraceId: null, match: null };
+  }
+  function logLevelFor(status, failed) {
+    if (failed || !status || status >= 500) return 'error';
+    return status >= 400 ? 'warn' : 'info';
+  }
+  function buildLogAttributes(o) {
+    var a = { traceIdSource: o.trace.source, requestUrl: String(o.url).split('?')[0], httpStatus: o.status, requestMethod: o.method, requestVia: o.via };
+    if (o.trace.traceId) a['trace.id'] = o.trace.traceId; // logs-in-context key; omit rather than send null
+    if (o.trace.match !== null) a.responseTraceIdMatches = o.trace.match;
+    return a;
+  }
+
   function buildAjaxNrql(code) {
     return "SELECT timestamp, requestUrl, httpResponseCode, timeToSettle, demoUser\n" +
            "FROM AjaxRequest\n" +
@@ -616,7 +694,8 @@
     makeCode: makeCode, sanitizeCode: sanitizeCode, parseTraceparent: parseTraceparent,
     decodeNewrelicHeader: decodeNewrelicHeader, normalizeBackendUrl: normalizeBackendUrl,
     resolveEndpoint: resolveEndpoint, withParams: withParams, traceStatus: traceStatus,
-    buildSpanNrql: buildSpanNrql, buildAjaxNrql: buildAjaxNrql, buildTransactionNrql: buildTransactionNrql
+    buildSpanNrql: buildSpanNrql, buildAjaxNrql: buildAjaxNrql, buildTransactionNrql: buildTransactionNrql,
+    buildLogsNrql: buildLogsNrql, traceIdForLog: traceIdForLog, logLevelFor: logLevelFor, buildLogAttributes: buildLogAttributes
   };
 })(window);
 /*LOGIC-END*/
@@ -715,7 +794,11 @@
       var x = new XMLHttpRequest();
       x.open(method, url);
       if (body) x.setRequestHeader('Content-Type', 'application/json');
-      x.onload = function () { resolve({ status: x.status, ok: x.status >= 200 && x.status < 300, text: x.responseText }); };
+      x.onload = function () {
+        // Only ask for x-trace-id when the server exposes it, so the browser doesn't warn.
+        var exposed = /x-trace-id/i.test(x.getAllResponseHeaders());
+        resolve({ status: x.status, ok: x.status >= 200 && x.status < 300, text: x.responseText, traceHeader: exposed ? x.getResponseHeader('x-trace-id') : null });
+      };
       x.onerror = function () { reject(new Error('Network error')); };
       x.send(body || null);
     });
@@ -723,7 +806,7 @@
   function viaFetch(url, method, body) {
     var init = { method: method, cache: 'no-store' };
     if (body) { init.body = body; init.headers = { 'Content-Type': 'application/json' }; }
-    return fetch(url, init).then(function (r) { return r.text().then(function (t) { return { status: r.status, ok: r.ok, text: t }; }); });
+    return fetch(url, init).then(function (r) { return r.text().then(function (t) { return { status: r.status, ok: r.ok, text: t, traceHeader: r.headers.get('x-trace-id') }; }); });
   }
   // Sends one request and records it in the inspector. Resolves with the parsed JSON (or null).
   function send(opts) {
@@ -737,14 +820,14 @@
     var run = opts.via === 'xhr' ? viaXhr : viaFetch;
     return run(url, opts.method, body).then(function (res) {
       var json = null; try { json = JSON.parse(res.text); } catch (e) {}
-      finish(opts, id, url, res.status, Math.round(performance.now() - t0), json);
+      finish(opts, id, url, res.status, Math.round(performance.now() - t0), json, null, res.traceHeader);
       return json;
     }, function (err) {
       finish(opts, id, url, 0, Math.round(performance.now() - t0), null, err.message);
       return null;
     });
   }
-  function finish(opts, id, url, status, ms, json, errMsg) {
+  function finish(opts, id, url, status, ms, json, errMsg, traceHeader) {
     var cap = findCapture(id);
     var headers = (cap && cap.headers) || {};
     var sent = L.parseTraceparent(headers.traceparent);
@@ -752,10 +835,21 @@
     state.stats.req++;
     if (sent) { state.stats.traced++; state.traceIds.push(sent.traceId); }
     if (st === 'joined') state.stats.joined++;
-    record({ via: opts.via, method: opts.method, url: url, status: status, ms: ms, headers: headers, sent: sent, st: st, err: errMsg });
+    var logged = logRequest(opts, url, status, errMsg, L.traceIdForLog({ sent: sent, responseHeader: traceHeader, backend: json && json.trace }));
+    record({ via: opts.via, method: opts.method, url: url, status: status, ms: ms, headers: headers, sent: sent, st: st, err: errMsg, log: logged });
     renderHeaders(headers, opts, url);
     renderSpanQuery();
   }
+  // Writes one browser log per request, on the request's trace (see the "Logs in the trace" card).
+  function logRequest(opts, url, status, errMsg, trace) {
+    var level = L.logLevelFor(status, !!errMsg);
+    var message = '[' + state.code + '] ' + opts.method + ' ' + shortUrl(url) + ' ' + (status || 'failed') + (errMsg ? ' (' + errMsg + ')' : '');
+    var attrs = L.buildLogAttributes({ trace: trace, url: shortUrl(url), method: opts.method, status: status, via: opts.via });
+    var nr = agent(), sent = false;
+    if (nr && typeof nr.log === 'function') { safe(function () { nr.log(message, { level: level, customAttributes: attrs }); }); sent = true; }
+    return { level: level, message: message, attrs: attrs, sent: sent, trace: trace };
+  }
+
   function api(name, via) {
     var ep = L.resolveEndpoint(name, state.backend);
     if (!ep) return Promise.resolve(null);
@@ -807,18 +901,28 @@
       (e.headers.traceparent ? '<div class="tp">' + tpHtml(e.headers.traceparent) + '</div>' : '') +
       '<div class="line2"><span class="status ' + s.cls + '">' + esc(s.label) + '</span>' +
       (e.sent ? '<button class="linkish js-copy-id" type="button" data-id="' + e.sent.traceId + '">Copy trace ID</button>' : '') + '</div>' +
-      '<div class="hint">' + esc(s.hint) + (e.err ? ' (' + esc(e.err) + ')' : '') + '</div>';
+      '<div class="hint">' + esc(s.hint) + (e.err ? ' (' + esc(e.err) + ')' : '') + '</div>' +
+      logLineHtml(e.log);
     var feed = $('feed');
     feed.insertBefore(li, feed.firstChild);
     while (feed.children.length > 100) feed.removeChild(feed.lastChild);
     $('statReq').textContent = state.stats.req; $('statTraced').textContent = state.stats.traced; $('statJoined').textContent = state.stats.joined;
     toast(e.method + ' ' + (e.status || 'failed') + ' · ' + s.label);
   }
+  function logLineHtml(log) {
+    if (!log) return '';
+    var t = log.trace, tid = t.traceId ? t.traceId.slice(0, 8) + '…' + t.traceId.slice(-4) : 'none';
+    var src = { 'request-header': 'from request traceparent', 'response-header': 'from x-trace-id', 'response-body': 'from response body', none: 'no trace' }[t.source];
+    var agree = t.match === true ? ' · response agrees' : (t.match === false ? ' · response differs' : '');
+    return '<div class="logline"><span class="lvl ' + log.level + '">' + log.level.toUpperCase() + '</span>' + (log.sent ? 'newrelic.log' : 'not sent (no agent)') +
+      ' · <b>trace.id</b> ' + esc(tid) + ' <span>(' + esc(src + agree) + ')</span></div>';
+  }
   function renderSpanQuery() {
-    var q = L.buildSpanNrql(state.traceIds);
-    var pre = $('nrqlSpans');
-    pre.textContent = q || 'Send a request in Step 02 to fill in your trace IDs.';
-    pre.classList.toggle('placeholder', !q);
+    [['nrqlSpans', L.buildSpanNrql(state.traceIds)], ['nrqlLogs', L.buildLogsNrql(state.traceIds)]].forEach(function (pair) {
+      var pre = $(pair[0]), q = pair[1];
+      pre.textContent = q || 'Send a request in Step 02 to fill in your trace IDs.';
+      pre.classList.toggle('placeholder', !q);
+    });
   }
   function clearFeed() {
     state.stats = { req: 0, traced: 0, joined: 0 };

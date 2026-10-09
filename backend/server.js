@@ -26,6 +26,7 @@ function createServer(opts) {
   const allowedOrigins = opts.allowedOrigins || DEFAULT_ORIGINS;
   const sleep = opts.sleep || defaultSleep;
   const onRequest = opts.onRequest || function () {};
+  const stdout = opts.stdout || ((line) => process.stdout.write(line + '\n'));
 
   function apm(method) {
     const args = Array.prototype.slice.call(arguments, 1);
@@ -43,6 +44,7 @@ function createServer(opts) {
       res.setHeader('Access-Control-Allow-Headers', ALLOW_HEADERS);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       res.setHeader('Access-Control-Max-Age', '600');
+      res.setHeader('Access-Control-Expose-Headers', 'x-trace-id');
       // Lets a public page (GitHub Pages) call this server when it runs on localhost.
       if (req.headers['access-control-request-private-network'] === 'true') {
         res.setHeader('Access-Control-Allow-Private-Network', 'true');
@@ -62,10 +64,30 @@ function createServer(opts) {
     };
   }
 
-  function send(req, res, status, payload) {
-    const body = JSON.stringify(Object.assign({}, payload, { trace: traceInfo(req) }));
-    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(body);
+  // One log line per request, written while the transaction is active so the APM
+  // agent's recordLogEvent adds trace.id, span.id and entity.* (logs in context).
+  function logRequest(req, path, status, ctx) {
+    if (!ctx || !ctx.route || ctx.route === 'api/health') return;
+    const level = status >= 500 ? 'ERROR' : (status >= 400 ? 'WARN' : 'INFO');
+    const message = (ctx.demoCode ? '[' + ctx.demoCode + '] ' : '') + req.method + ' ' + path + ' ' + status;
+    const event = { message, level, route: ctx.route, httpStatus: status, method: req.method, receivedTraceparent: Boolean(req.headers.traceparent) };
+    if (ctx.demoCode) event.demoCode = ctx.demoCode;
+    if (ctx.demoUser) event.demoUser = ctx.demoUser;
+    if (ctx.error) event.error = ctx.error;
+    apm('recordLogEvent', Object.assign({}, event)); // the agent mutates what it is given
+    const link = apm('getLinkingMetadata') || {};
+    const line = Object.assign({ timestamp: new Date().toISOString(), 'trace.id': link['trace.id'] || null, 'span.id': link['span.id'] || null }, event);
+    if (line.error) line.error = line.error.message;
+    try { stdout(JSON.stringify(line)); } catch (e) { /* never break the demo */ }
+  }
+
+  function send(req, res, status, payload, ctx) {
+    const trace = traceInfo(req);
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+    if (trace.apm) headers['x-trace-id'] = trace.apm.traceId;
+    logRequest(req, ctx && ctx.path, status, ctx);
+    res.writeHead(status, headers);
+    res.end(JSON.stringify(Object.assign({}, payload, { trace })));
   }
 
   // Calls another endpoint on this same server over HTTP. The APM agent sees an
@@ -96,57 +118,64 @@ function createServer(opts) {
     if (demoCode) apm('addCustomAttribute', 'demoCode', demoCode.slice(0, 32));
     if (demoUser) apm('addCustomAttribute', 'demoUser', demoUser.slice(0, 64));
 
+    const ctx = { path, demoCode: demoCode && demoCode.slice(0, 32), demoUser: demoUser && demoUser.slice(0, 64), route: null };
+    const route = (name) => { ctx.route = name; apm('setTransactionName', name); };
+    const withCode = (p) => p + (ctx.demoCode ? '?demoCode=' + encodeURIComponent(ctx.demoCode) : '');
+
     try {
       if (path === '/' || path === '/api/health') {
-        apm('setTransactionName', 'api/health');
-        return send(req, res, 200, { data: { ok: true, apm: Boolean(agent) } });
+        route('api/health');
+        return send(req, res, 200, { data: { ok: true, apm: Boolean(agent) } }, ctx);
       }
       if (path === '/api/products' && req.method === 'GET') {
-        apm('setTransactionName', 'api/products');
-        return send(req, res, 200, { data: { products: PRODUCTS } });
+        route('api/products');
+        return send(req, res, 200, { data: { products: PRODUCTS } }, ctx);
       }
       if (path === '/api/cart' && req.method === 'GET') {
-        apm('setTransactionName', 'api/cart');
-        return send(req, res, 200, { data: { items: [{ sku: 'NR-TEE', qty: 2 }, { sku: 'NR-MUG', qty: 1 }], total: 64 } });
+        route('api/cart');
+        return send(req, res, 200, { data: { items: [{ sku: 'NR-TEE', qty: 2 }, { sku: 'NR-MUG', qty: 1 }], total: 64 } }, ctx);
       }
       if (path === '/api/checkout' && req.method === 'POST') {
-        apm('setTransactionName', 'api/checkout');
-        const inventory = await callInternal(server, '/internal/inventory');
-        const payment = await callInternal(server, '/internal/payment');
-        return send(req, res, 200, { data: { orderId: rid('ORD'), steps: [inventory.data, payment.data] } });
+        route('api/checkout');
+        const inventory = await callInternal(server, withCode('/internal/inventory'));
+        const payment = await callInternal(server, withCode('/internal/payment'));
+        return send(req, res, 200, { data: { orderId: rid('ORD'), steps: [inventory.data, payment.data] } }, ctx);
       }
       if (path.startsWith('/api/orders/') && req.method === 'GET') {
-        apm('setTransactionName', 'api/orders/:id');
-        return send(req, res, 200, { data: { orderId: path.split('/').pop(), status: 'confirmed' } });
+        route('api/orders/:id');
+        return send(req, res, 200, { data: { orderId: path.split('/').pop(), status: 'confirmed' } }, ctx);
       }
       if (path === '/api/slow') {
-        apm('setTransactionName', 'api/slow');
+        route('api/slow');
         const asked = parseInt(url.searchParams.get('ms'), 10);
         const ms = Math.min(Number.isFinite(asked) && asked > 0 ? asked : 1000, MAX_SLOW_MS);
         await sleep(ms);
-        return send(req, res, 200, { data: { waitedMs: ms } });
+        return send(req, res, 200, { data: { waitedMs: ms } }, ctx);
       }
       if (path === '/api/fail') {
-        apm('setTransactionName', 'api/fail');
-        const err = new Error('Payment service unavailable' + (demoCode ? ' [' + demoCode + ']' : ''));
+        route('api/fail');
+        const err = new Error('Payment service unavailable' + (ctx.demoCode ? ' [' + ctx.demoCode + ']' : ''));
         apm('noticeError', err);
-        return send(req, res, 500, { error: err.message });
+        ctx.error = err;
+        return send(req, res, 500, { error: err.message }, ctx);
       }
       if (path === '/internal/inventory') {
-        apm('setTransactionName', 'internal/inventory');
+        route('internal/inventory');
         await sleep(40);
-        return send(req, res, 200, { data: { service: 'inventory', reserved: true } });
+        return send(req, res, 200, { data: { service: 'inventory', reserved: true } }, ctx);
       }
       if (path === '/internal/payment') {
-        apm('setTransactionName', 'internal/payment');
+        route('internal/payment');
         await sleep(120);
-        return send(req, res, 200, { data: { service: 'payment', authorized: true } });
+        return send(req, res, 200, { data: { service: 'payment', authorized: true } }, ctx);
       }
-      apm('setTransactionName', 'not-found');
-      return send(req, res, 404, { error: 'Not found: ' + path });
+      route('not-found');
+      return send(req, res, 404, { error: 'Not found: ' + path }, ctx);
     } catch (err) {
       apm('noticeError', err);
-      return send(req, res, 500, { error: 'Unexpected server error' });
+      ctx.route = ctx.route || 'unhandled';
+      ctx.error = err;
+      return send(req, res, 500, { error: 'Unexpected server error' }, ctx);
     }
   });
   return server;

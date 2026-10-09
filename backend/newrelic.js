@@ -5,6 +5,9 @@ exports.config = {
   app_name: [process.env.NEW_RELIC_APP_NAME || 'BrowserLogsDemo API'],
   license_key: process.env.NEW_RELIC_LICENSE_KEY,
   distributed_tracing: { enabled: true },
+  // Logs in context: newrelic.recordLogEvent() forwards each request log with
+  // trace.id / span.id, so it shows up on the trace next to the browser's logs.
+  application_logging: { enabled: true, forwarding: { enabled: true } },
   logging: { level: process.env.NEW_RELIC_LOG_LEVEL || 'info', filepath: 'stdout' },
   allow_all_headers: true,
   attributes: {
