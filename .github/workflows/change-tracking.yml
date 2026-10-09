@@ -1,0 +1,164 @@
+# Sends New Relic change tracking events for the BrowserLogsDemo browser app.
+#
+#  1. deploy-marker: a Deployment event each time GitHub Pages finishes publishing main.
+#  2. daily-event:   one demo event at 9 AM Pacific, rotating categories by weekday
+#                    (logic and tests in .github/scripts/daily-change-event*.sh).
+#                    "Run workflow" on the Actions tab runs it on demand.
+#
+# Secrets: NEW_RELIC_API_KEY (User key, NRAK-...) and NEW_RELIC_DEPLOYMENT_ENTITY_GUID.
+#
+# Security note: newrelic/deployment-marker-action v2.6.2 builds a shell command
+# from its inputs and runs it with eval, with the API key in the same environment.
+# Anything derived from commit text is reduced to a safe character set before it
+# reaches the action. Keep it that way if you add inputs.
+name: Change tracking
+
+on:
+  workflow_run:
+    workflows: ["pages-build-deployment"]
+    types: [completed]
+  schedule:
+    # GitHub cron is UTC only. 16:07 UTC = 9:07 AM PDT, 17:07 UTC = 9:07 AM PST.
+    # Both fire; the run that is not in the 9 o'clock hour in Los Angeles skips itself.
+    - cron: "7 16,17 * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  deploy-marker:
+    name: Deployment marker for GitHub Pages
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: change-tracking-deploy-${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Describe the deployed commit
+        id: meta
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          COMMIT_MSG: ${{ github.event.workflow_run.head_commit.message }}
+        run: |
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then echo "::error::Unexpected commit SHA"; exit 1; fi
+          # First line of the commit message, safe characters only (see security note above).
+          title="$(printf '%s\n' "$COMMIT_MSG" | head -n1 | tr -cd 'A-Za-z0-9 ._:/#,()+=@&%?!-' | cut -c1-150)"
+          title="${title:-GitHub Pages deploy}"
+          {
+            echo "sha=$HEAD_SHA"
+            echo "short_sha=${HEAD_SHA:0:7}"
+            echo "title=$title"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send Deployment change event
+        uses: newrelic/deployment-marker-action@d88a59ea8f713ad6935e60de27273157790b1e3b # v2.6.2
+        with:
+          apiKey: ${{ secrets.NEW_RELIC_API_KEY }}
+          commandType: changeTrackingCreateEvent
+          entitySearch: "id = '${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}'"
+          category: Deployment
+          type: Basic
+          version: ${{ steps.meta.outputs.short_sha }}
+          commit: ${{ steps.meta.outputs.sha }}
+          changelog: ${{ steps.meta.outputs.title }}
+          deeplink: https://github.com/${{ github.repository }}/commit/${{ steps.meta.outputs.sha }}
+          shortDescription: "Pages deploy ${{ steps.meta.outputs.short_sha }}: ${{ steps.meta.outputs.title }}"
+          description: GitHub Pages published the BrowserLogsDemo site from main.
+          user: ${{ github.event.workflow_run.actor.login }}
+          groupid: pages-${{ steps.meta.outputs.short_sha }}
+          customAttributes: '{source: "github-pages", pagesRunId: "${{ github.event.workflow_run.id }}", repository: "${{ github.repository }}"}'
+
+      - name: Summary
+        env:
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+          TITLE: ${{ steps.meta.outputs.title }}
+        run: |
+          echo "Sent Deployment event **$SHORT_SHA**: $TITLE" >> "$GITHUB_STEP_SUMMARY"
+
+  daily-event:
+    name: Daily demo change event
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    concurrency:
+      group: change-tracking-daily
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Pick today's event
+        id: pick
+        env:
+          # Scheduled runs only send in the 9 o'clock hour Pacific; manual runs always send.
+          ENFORCE_HOUR: ${{ github.event_name == 'schedule' }}
+        run: bash .github/scripts/daily-change-event.sh
+
+      - name: Not 9 AM in Los Angeles, skipping
+        if: steps.pick.outputs.skip == 'true'
+        run: echo "The other scheduled run handles today's event." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Send Deployment event
+        if: steps.pick.outputs.skip != 'true' && steps.pick.outputs.category == 'Deployment'
+        uses: newrelic/deployment-marker-action@d88a59ea8f713ad6935e60de27273157790b1e3b # v2.6.2
+        with:
+          apiKey: ${{ secrets.NEW_RELIC_API_KEY }}
+          commandType: changeTrackingCreateEvent
+          entitySearch: "id = '${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}'"
+          category: ${{ steps.pick.outputs.category }}
+          type: ${{ steps.pick.outputs.type }}
+          version: ${{ steps.pick.outputs.version }}
+          shortDescription: ${{ steps.pick.outputs.short_description }}
+          description: ${{ steps.pick.outputs.description }}
+          user: github-actions
+          groupid: ${{ steps.pick.outputs.group_id }}
+          customAttributes: '{source: "daily-demo-schedule", trigger: "${{ github.event_name }}"}'
+
+      - name: Send Feature Flag event
+        if: steps.pick.outputs.skip != 'true' && steps.pick.outputs.category == 'Feature Flag'
+        uses: newrelic/deployment-marker-action@d88a59ea8f713ad6935e60de27273157790b1e3b # v2.6.2
+        with:
+          apiKey: ${{ secrets.NEW_RELIC_API_KEY }}
+          commandType: changeTrackingCreateEvent
+          entitySearch: "id = '${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}'"
+          category: ${{ steps.pick.outputs.category }}
+          type: ${{ steps.pick.outputs.type }}
+          featureFlagId: ${{ steps.pick.outputs.flag_id }}
+          shortDescription: ${{ steps.pick.outputs.short_description }}
+          description: ${{ steps.pick.outputs.description }}
+          user: github-actions
+          groupid: ${{ steps.pick.outputs.group_id }}
+          customAttributes: '{source: "daily-demo-schedule", trigger: "${{ github.event_name }}"}'
+
+      - name: Send Business or Operational event
+        if: >-
+          steps.pick.outputs.skip != 'true' &&
+          steps.pick.outputs.category != 'Deployment' &&
+          steps.pick.outputs.category != 'Feature Flag'
+        uses: newrelic/deployment-marker-action@d88a59ea8f713ad6935e60de27273157790b1e3b # v2.6.2
+        with:
+          apiKey: ${{ secrets.NEW_RELIC_API_KEY }}
+          commandType: changeTrackingCreateEvent
+          entitySearch: "id = '${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}'"
+          category: ${{ steps.pick.outputs.category }}
+          type: ${{ steps.pick.outputs.type }}
+          shortDescription: ${{ steps.pick.outputs.short_description }}
+          description: ${{ steps.pick.outputs.description }}
+          user: github-actions
+          groupid: ${{ steps.pick.outputs.group_id }}
+          customAttributes: '{source: "daily-demo-schedule", trigger: "${{ github.event_name }}"}'
+
+      - name: Summary
+        if: steps.pick.outputs.skip != 'true'
+        env:
+          CATEGORY: ${{ steps.pick.outputs.category }}
+          TYPE: ${{ steps.pick.outputs.type }}
+          SHORT: ${{ steps.pick.outputs.short_description }}
+        run: |
+          echo "Sent **$CATEGORY / $TYPE** event: $SHORT" >> "$GITHUB_STEP_SUMMARY"
