@@ -329,7 +329,15 @@
     .agent-badge #agentText { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   }
   .js-code { white-space: nowrap; }
-  @media (max-width: 400px) { .brand svg { height: 24px; max-width: 108px; } }
+  @media (max-width: 560px) {
+    /* Phones: logo + badge on the first row, page switcher full width on the second. */
+    header.site .wrap { height: auto; flex-wrap: wrap; row-gap: 10px; padding-top: 12px; padding-bottom: 10px; }
+    .brand-row { display: contents; }
+    .brand { order: 1; }
+    .agent-badge { order: 2; }
+    .switch { order: 3; flex: 1 1 100%; }
+    .switch a { flex: 1; text-align: center; padding: 7px 4px; font-size: 13px; }
+  }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
@@ -367,6 +375,7 @@
         <a href="index.html" aria-current="page">Logs</a>
         <a href="errors.html">Errors</a>
         <a href="tracing.html">Tracing</a>
+        <a href="vitals.html">Vitals</a>
       </nav>
     </div>
     <span id="agentBadge" class="agent-badge" role="status" aria-live="polite"><span class="dot"></span><span id="agentText">Checking for browser agent…</span></span>
