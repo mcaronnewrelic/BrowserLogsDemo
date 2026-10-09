@@ -1,0 +1,1 @@
+{"data":{"orderId":"ORD-STATIC","steps":[{"service":"inventory","reserved":true},{"service":"payment","authorized":true}]},"source":"static"}

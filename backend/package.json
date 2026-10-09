@@ -1,0 +1,17 @@
+{
+  "name": "browser-tracing-demo-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiny APM-instrumented API for the BrowserLogsDemo distributed tracing page.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test server.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "newrelic": "^12.0.0"
+  }
+}

@@ -318,11 +318,12 @@
     header.site .wrap { height: 64px; gap: 10px; }
     .brand-row { gap: 10px; }
     .brand svg { height: 24px; }
-    .switch a { padding: 6px 11px; font-size: 13px; }
+    .switch a { padding: 6px 9px; font-size: 12.5px; }
     .agent-badge { padding: 9px; }
     .agent-badge #agentText { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   }
   .js-code { white-space: nowrap; }
+  @media (max-width: 400px) { .brand svg { height: 24px; max-width: 108px; } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
@@ -359,6 +360,7 @@
       <nav class="switch" aria-label="Demo pages">
         <a href="index.html" aria-current="page">Logs</a>
         <a href="errors.html">Errors</a>
+        <a href="tracing.html">Tracing</a>
       </nav>
     </div>
     <span id="agentBadge" class="agent-badge" role="status" aria-live="polite"><span class="dot"></span><span id="agentText">Checking for browser agent…</span></span>
